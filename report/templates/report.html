@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VENOM Report — {{ target }}</title>
+    <style>
+        /* ===== RESET & BASE ===== */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+            --text: #e6edf3; --text-dim: #8b949e; --border: #30363d;
+            --green: #3fb950; --cyan: #58a6ff; --yellow: #d29922;
+            --orange: #f0883e; --red: #f85149; --purple: #bc8cff;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg); color: var(--text);
+            line-height: 1.6; min-height: 100vh;
+        }
+        a { color: var(--cyan); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* ===== HEADER ===== */
+        .header {
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+            border-bottom: 2px solid var(--green);
+            padding: 30px 40px;
+        }
+        .header-inner {
+            max-width: 1200px; margin: 0 auto;
+            display: flex; justify-content: space-between; align-items: center;
+            flex-wrap: wrap; gap: 20px;
+        }
+        .brand {
+            display: flex; align-items: center; gap: 15px;
+        }
+        .brand-icon {
+            width: 50px; height: 50px; border-radius: 12px;
+            background: linear-gradient(135deg, var(--green), var(--cyan));
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; font-weight: 900; color: var(--bg);
+        }
+        .brand h1 { font-size: 1.8em; color: var(--green); letter-spacing: 3px; }
+        .brand small { color: var(--text-dim); font-weight: 400; font-size: 0.5em; display: block; letter-spacing: 1px; }
+        .scan-info { text-align: right; color: var(--text-dim); font-size: 0.9em; }
+        .scan-info strong { color: var(--text); }
+
+        /* ===== CONTAINER ===== */
+        .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
+
+        /* ===== RISK OVERVIEW ===== */
+        .risk-overview {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 30px; margin-bottom: 25px;
+            display: flex; align-items: center; gap: 40px; flex-wrap: wrap;
+        }
+        .risk-meter {
+            position: relative; width: 140px; height: 140px; flex-shrink: 0;
+        }
+        .risk-meter svg { transform: rotate(-90deg); }
+        .risk-meter circle {
+            fill: none; stroke-width: 10; cx: 70; cy: 70; r: 60;
+        }
+        .risk-bg { stroke: var(--bg3); }
+        .risk-fill {
+            stroke-dasharray: 377; stroke-linecap: round;
+            transition: stroke-dashoffset 1.5s ease-out;
+        }
+        .risk-score-text {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 2em; font-weight: 700;
+        }
+        .risk-label {
+            position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%);
+            font-size: 0.8em; font-weight: 600; letter-spacing: 2px;
+        }
+        .risk-LOW .risk-fill { stroke: var(--green); }
+        .risk-LOW .risk-score-text, .risk-LOW .risk-label { color: var(--green); }
+        .risk-MEDIUM .risk-fill { stroke: var(--yellow); }
+        .risk-MEDIUM .risk-score-text, .risk-MEDIUM .risk-label { color: var(--yellow); }
+        .risk-HIGH .risk-fill { stroke: var(--orange); }
+        .risk-HIGH .risk-score-text, .risk-HIGH .risk-label { color: var(--orange); }
+        .risk-CRITICAL .risk-fill { stroke: var(--red); }
+        .risk-CRITICAL .risk-score-text, .risk-CRITICAL .risk-label { color: var(--red); }
+
+        .risk-details { flex: 1; min-width: 250px; }
+        .risk-details h2 { color: var(--cyan); font-size: 1.3em; margin-bottom: 10px; }
+
+        .stat-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px; margin-top: 15px;
+        }
+        .stat-box {
+            background: var(--bg3); border-radius: 8px; padding: 12px; text-align: center;
+        }
+        .stat-box .num { font-size: 1.6em; font-weight: 700; color: var(--green); }
+        .stat-box .lbl { font-size: 0.75em; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+
+        /* ===== PANELS ===== */
+        .panel {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 10px; margin-bottom: 20px; overflow: hidden;
+        }
+        .panel-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 20px; cursor: pointer; user-select: none;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+        .panel-header:hover { background: var(--bg3); }
+        .panel-header h2 {
+            font-size: 1.1em; display: flex; align-items: center; gap: 10px;
+        }
+        .panel-header .icon { font-size: 1.2em; }
+        .panel-header .badge {
+            background: var(--bg3); color: var(--cyan); padding: 2px 10px;
+            border-radius: 12px; font-size: 0.8em; font-weight: 600;
+        }
+        .panel-header .chevron {
+            transition: transform 0.3s; font-size: 0.8em; color: var(--text-dim);
+        }
+        .panel.open .panel-header .chevron { transform: rotate(180deg); }
+        .panel-body { padding: 20px; display: none; }
+        .panel.open .panel-body { display: block; }
+
+        /* ===== TABLES ===== */
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 10px 14px; text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: var(--bg3); color: var(--cyan);
+            font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px;
+        }
+        tr:hover td { background: rgba(88, 166, 255, 0.03); }
+
+        /* ===== TAGS ===== */
+        .tag {
+            display: inline-block; padding: 3px 10px; border-radius: 4px;
+            font-size: 0.8em; margin: 2px; font-weight: 500;
+        }
+        .tag-green { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+        .tag-cyan { background: rgba(88,166,255,0.15); color: var(--cyan); border: 1px solid rgba(88,166,255,0.3); }
+        .tag-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
+        .tag-red { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+        .tag-purple { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+
+        /* KV list */
+        .kv-grid { display: grid; grid-template-columns: 180px 1fr; gap: 0; }
+        .kv-grid .k {
+            padding: 8px 14px; color: var(--text-dim); font-weight: 600;
+            border-bottom: 1px solid var(--border); font-size: 0.9em;
+        }
+        .kv-grid .v {
+            padding: 8px 14px; border-bottom: 1px solid var(--border);
+            word-break: break-all;
+        }
+
+        /* List */
+        .item-list { list-style: none; padding: 0; }
+        .item-list li {
+            padding: 6px 14px; border-bottom: 1px solid var(--border);
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9em;
+        }
+        .item-list li:last-child { border-bottom: none; }
+
+        /* ===== FOOTER ===== */
+        .footer {
+            text-align: center; padding: 30px; color: var(--text-dim);
+            font-size: 0.8em; border-top: 1px solid var(--border);
+            margin-top: 40px;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .header-inner { flex-direction: column; text-align: center; }
+            .scan-info { text-align: center; }
+            .risk-overview { flex-direction: column; align-items: center; text-align: center; }
+            .kv-grid { grid-template-columns: 1fr; }
+            .kv-grid .k { font-weight: 700; border-bottom: none; padding-bottom: 0; }
+        }
+
+        /* Security header indicator */
+        .sh-present { color: var(--green); }
+        .sh-missing { color: var(--red); }
+    </style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+    <div class="header-inner">
+        <div class="brand">
+            <div class="brand-icon">V</div>
+            <h1>VENOM <small>OSINT Reconnaissance Report</small></h1>
+        </div>
+        <div class="scan-info">
+            <div>Target: <strong>{{ target }}</strong></div>
+            <div>Scan Date: <strong>{{ scan_date }}</strong></div>
+            <div>Version: <strong>1.0.0</strong></div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== MAIN ===== -->
+<div class="container">
+
+    <!-- RISK OVERVIEW -->
+    <div class="risk-overview">
+        <div class="risk-meter risk-{{ risk_level | default('LOW') }}">
+            <svg width="140" height="140">
+                <circle class="risk-bg" r="60" cx="70" cy="70"></circle>
+                <circle class="risk-fill" r="60" cx="70" cy="70"
+                    style="stroke-dashoffset: {{ 377 - (377 * (risk_score | default(0)) / 100) }};"></circle>
+            </svg>
+            <div class="risk-score-text">{{ risk_score | default(0) }}</div>
+            <div class="risk-label">{{ risk_level | default('LOW') }}</div>
+        </div>
+        <div class="risk-details">
+            <h2>Executive Summary</h2>
+            <p style="color: var(--text-dim); margin-bottom: 10px;">
+                Automated OSINT scan of <strong style="color: var(--text);">{{ target }}</strong> completed.
+                {% if risk_flags %}{{ risk_flags | length }} risk flag(s) identified.{% else %}No significant risks detected.{% endif %}
+            </p>
+            <div class="stat-grid">
+                <div class="stat-box"><div class="num">{{ subdomains | length if subdomains else 0 }}</div><div class="lbl">Subdomains</div></div>
+                <div class="stat-box"><div class="num">{{ pages_crawled | length if pages_crawled else 0 }}</div><div class="lbl">Pages</div></div>
+                <div class="stat-box"><div class="num">{{ emails_found | length if emails_found else 0 }}</div><div class="lbl">Emails</div></div>
+                <div class="stat-box"><div class="num">{{ risk_flags | length if risk_flags else 0 }}</div><div class="lbl">Risk Flags</div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QUICK NAV & GRAPH LINK -->
+    <div style="display: flex; gap: 12px; margin-bottom: 25px; flex-wrap: wrap;">
+        <a href="graph.html" target="_blank" style="background: linear-gradient(135deg, rgba(63,185,80,0.2), rgba(88,166,255,0.2)); border: 1px solid var(--green); color: var(--green); padding: 10px 18px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+            <span>🌐</span> View Interactive Attack Surface Graph (graph.html)
+        </a>
+        <a href="report.json" target="_blank" style="background: var(--bg3); border: 1px solid var(--border); color: var(--cyan); padding: 10px 18px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+            <span>📦</span> Raw JSON Findings (report.json)
+        </a>
+    </div>
+
+    <!-- AI ANALYST LAYER DASHBOARD -->
+    {% if ai_analysis %}
+    <div class="panel open" style="border: 1px solid var(--purple);">
+        <div class="panel-header" onclick="togglePanel(this)" style="background: rgba(188,140,255,0.08);">
+            <h2><span class="icon">🧠</span> AI Security Analyst Intelligence Dashboard <span class="badge" style="background: var(--purple); color: var(--bg);">AI SYNTHESIS</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <!-- Executive Summary -->
+            {% if ai_analysis.executive_summary %}
+            <h3 style="color: var(--purple); margin-bottom: 12px; font-size: 1.05em; display: flex; align-items: center; gap: 8px;">
+                <span>🎯</span> Executive Intelligence Briefing
+            </h3>
+            <ul style="list-style: none; padding-left: 0; margin-bottom: 25px;">
+                {% for bullet in ai_analysis.executive_summary %}
+                <li style="background: var(--bg3); border-left: 4px solid var(--purple); padding: 10px 14px; margin-bottom: 8px; border-radius: 0 6px 6px 0; font-size: 0.95em;">
+                    {{ bullet | replace('**', '<strong>') | replace('**', '</strong>') | safe }}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+
+            <!-- Technical Narrative Sections -->
+            {% if ai_analysis.narrative_sections %}
+            <h3 style="color: var(--cyan); margin-bottom: 12px; font-size: 1.05em; display: flex; align-items: center; gap: 8px;">
+                <span>🔍</span> Technical Attack Surface Analysis
+            </h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                {% for sec in ai_analysis.narrative_sections %}
+                <div style="background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+                    <h4 style="color: var(--cyan); margin-bottom: 8px; font-size: 0.95em;">{{ sec.title }}</h4>
+                    <p style="color: var(--text-dim); font-size: 0.88em; line-height: 1.5;">{{ sec.content }}</p>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Remediation Roadmap -->
+            {% if ai_analysis.remediation_roadmap %}
+            <h3 style="color: var(--green); margin-bottom: 12px; font-size: 1.05em; display: flex; align-items: center; gap: 8px;">
+                <span>🛡️</span> Prioritized Remediation Roadmap
+            </h3>
+            <table>
+                <tr><th>Priority</th><th>Action Item</th><th>Technical Guidance</th></tr>
+                {% for rem in ai_analysis.remediation_roadmap %}
+                <tr>
+                    <td>
+                        <span class="tag {% if 'P1' in rem.priority %}tag-red{% elif 'P2' in rem.priority %}tag-orange tag-yellow{% else %}tag-green{% endif %}">
+                            {{ rem.priority }}
+                        </span>
+                    </td>
+                    <td style="font-weight: 600; color: var(--text);">{{ rem.action }}</td>
+                    <td style="color: var(--text-dim); font-size: 0.9em;">{{ rem.details }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- CVE VULNERABILITY MATCHES -->
+    {% if cve_matches %}
+    <div class="panel open" style="border: 1px solid var(--red);">
+        <div class="panel-header" onclick="togglePanel(this)" style="background: rgba(248,81,73,0.08);">
+            <h2><span class="icon">🛡️</span> CVE Vulnerability Correlations <span class="badge" style="background: var(--red); color: white;">{{ cve_matches | length }} MATCHED</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <table>
+                <tr><th>Component</th><th>CVE ID</th><th>CVSS</th><th>Severity</th><th>Description</th><th>Remediation</th></tr>
+                {% for cve in cve_matches %}
+                <tr>
+                    <td><span class="tag tag-cyan">{{ cve.tech }}</span></td>
+                    <td><strong><a href="https://nvd.nist.gov/vuln/detail/{{ cve.cve_id }}" target="_blank">{{ cve.cve_id }}</a></strong></td>
+                    <td style="font-weight: 700; color: {% if cve.cvss >= 9.0 %}var(--red){% elif cve.cvss >= 7.0 %}var(--orange){% else %}var(--yellow){% endif %};">{{ cve.cvss }}</td>
+                    <td>
+                        <span class="tag {% if cve.severity == 'CRITICAL' %}tag-red{% elif cve.severity == 'HIGH' %}tag-yellow{% else %}tag-cyan{% endif %}">
+                            {{ cve.severity }}
+                        </span>
+                    </td>
+                    <td style="font-size: 0.88em;">{{ cve.summary }}</td>
+                    <td style="color: var(--green); font-size: 0.85em;">{{ cve.remediation }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- GITHUB DORKING & SECRET LEAKS -->
+    {% if github_dorks %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">🐙</span> GitHub Public Secret Reconnaissance & Dorks <span class="badge">{{ github_dorks | length }} DORKS</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <table>
+                <tr><th>Dork Category</th><th>Severity</th><th>Search Query</th><th>Direct Action</th></tr>
+                {% for dork in github_dorks %}
+                <tr>
+                    <td>
+                        <strong>{{ dork.title }}</strong><br>
+                        <small style="color: var(--text-dim);">{{ dork.category }}</small>
+                    </td>
+                    <td>
+                        <span class="tag {% if dork.severity == 'CRITICAL' %}tag-red{% elif dork.severity == 'HIGH' %}tag-yellow{% else %}tag-cyan{% endif %}">
+                            {{ dork.severity }}
+                        </span>
+                    </td>
+                    <td style="font-family: monospace; font-size: 0.85em; color: var(--cyan);">{{ dork.query }}</td>
+                    <td>
+                        <a href="{{ dork.search_url }}" target="_blank" class="tag tag-purple" style="text-decoration: none;">Search GitHub ↗</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- RISK FLAGS -->
+    {% if risk_flags %}
+    <div class="panel open">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">⚠️</span> Risk Flags <span class="badge">{{ risk_flags | length }}</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <table>
+                <tr><th>Flag</th><th>Score Impact</th><th>Details</th></tr>
+                {% for flag in risk_flags %}
+                <tr>
+                    <td><span class="tag tag-red">{{ flag.flag }}</span></td>
+                    <td style="color: var(--red); font-weight: 700;">+{{ flag.score }}</td>
+                    <td style="color: var(--text-dim);">{{ flag.details }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- WHOIS -->
+    {% if whois_data %}
+    <div class="panel open">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">📋</span> WHOIS Information</h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <div class="kv-grid">
+                {% for key, value in whois_data.items() %}
+                <div class="k">{{ key | replace('_', ' ') | title }}</div>
+                <div class="v">{% if value is iterable and value is not string %}{{ value | join(', ') }}{% else %}{{ value | default('N/A') }}{% endif %}</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- DNS -->
+    {% if dns_data %}
+    <div class="panel open">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">🌐</span> DNS Records</h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            {% for rtype, records in dns_data.items() %}
+            {% if records %}
+            <h3 style="color: var(--cyan); margin: 15px 0 8px; font-size: 0.95em;">{{ rtype }} Records</h3>
+            <ul class="item-list">
+                {% for record in records %}
+                <li>{{ record }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- SSL -->
+    {% if ssl_data %}
+    <div class="panel open">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">🔒</span> SSL/TLS Certificate</h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <div class="kv-grid">
+                <div class="k">Valid Until</div>
+                <div class="v">{{ ssl_data.not_after | default('N/A') }}</div>
+                <div class="k">Valid From</div>
+                <div class="v">{{ ssl_data.not_before | default('N/A') }}</div>
+                <div class="k">Issuer</div>
+                <div class="v">{% if ssl_data.issuer is mapping %}{% for k,v in ssl_data.issuer.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ ssl_data.issuer | default('N/A') }}{% endif %}</div>
+                <div class="k">Version</div>
+                <div class="v">{{ ssl_data.version | default('N/A') }}</div>
+                <div class="k">Signature Algorithm</div>
+                <div class="v">{{ ssl_data.signature_algorithm | default('N/A') }}</div>
+            </div>
+            {% if ssl_data.sans %}
+            <h3 style="color: var(--cyan); margin: 15px 0 8px; font-size: 0.95em;">Subject Alternative Names ({{ ssl_data.sans | length }})</h3>
+            <div>
+                {% for san in ssl_data.sans %}
+                <span class="tag tag-purple">{{ san }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- TECHNOLOGIES -->
+    {% if technologies %}
+    <div class="panel open">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">⚙️</span> Technology Stack</h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <div class="kv-grid">
+                <div class="k">Web Server</div>
+                <div class="v">{{ technologies.server | default('Not detected') }}</div>
+                <div class="k">CMS</div>
+                <div class="v">{{ technologies.cms | default('Not detected') }}</div>
+                <div class="k">CDN</div>
+                <div class="v">{{ technologies.cdn | default('Not detected') }}</div>
+            </div>
+            {% if technologies.frameworks %}
+            <h3 style="color: var(--cyan); margin: 15px 0 8px; font-size: 0.95em;">Frameworks</h3>
+            <div>{% for fw in technologies.frameworks %}<span class="tag tag-cyan">{{ fw }}</span>{% endfor %}</div>
+            {% endif %}
+            {% if technologies.js_libraries %}
+            <h3 style="color: var(--cyan); margin: 15px 0 8px; font-size: 0.95em;">JS Libraries</h3>
+            <div>{% for lib in technologies.js_libraries %}<span class="tag tag-cyan">{{ lib }}</span>{% endfor %}</div>
+            {% endif %}
+            {% if technologies.analytics %}
+            <h3 style="color: var(--cyan); margin: 15px 0 8px; font-size: 0.95em;">Analytics</h3>
+            <div>{% for a in technologies.analytics %}<span class="tag tag-cyan">{{ a }}</span>{% endfor %}</div>
+            {% endif %}
+            {% if technologies.security_headers %}
+            <h3 style="color: var(--cyan); margin: 15px 0 8px; font-size: 0.95em;">Security Headers</h3>
+            <table>
+                <tr><th>Header</th><th>Status</th></tr>
+                {% for header, status in technologies.security_headers.items() %}
+                <tr>
+                    <td>{{ header }}</td>
+                    <td class="{% if status == 'present' %}sh-present{% else %}sh-missing{% endif %}">
+                        {% if status == 'present' %}✅ Present{% else %}❌ Missing{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- SUBDOMAINS -->
+    {% if subdomains %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">🕸️</span> Subdomains <span class="badge">{{ subdomains | length }}</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <ul class="item-list">
+                {% for sub in subdomains %}
+                <li>{{ sub }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- CRAWLED PAGES -->
+    {% if pages_crawled %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">🕷️</span> Crawled Pages <span class="badge">{{ pages_crawled | length }}</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <table>
+                <tr><th>URL</th><th>Status</th><th>Title</th></tr>
+                {% for page in pages_crawled %}
+                <tr>
+                    <td><a href="{{ page.url }}" target="_blank">{{ page.url }}</a></td>
+                    <td>
+                        <span class="tag {% if page.status >= 400 %}tag-red{% elif page.status >= 300 %}tag-yellow{% else %}tag-green{% endif %}">
+                            {{ page.status }}
+                        </span>
+                    </td>
+                    <td>{{ page.title | default('—') }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- EMAILS -->
+    {% if emails_found %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">📧</span> Emails Found <span class="badge">{{ emails_found | length }}</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <table>
+                <tr><th>Email</th><th>Source URL</th></tr>
+                {% for email in emails_found %}
+                <tr>
+                    {% if email is mapping %}
+                    <td>{{ email.email }}</td>
+                    <td style="color: var(--text-dim); font-size: 0.85em;">{{ email.source_url | default('—') }}</td>
+                    {% else %}
+                    <td>{{ email }}</td>
+                    <td>—</td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- METADATA -->
+    {% if metadata_findings %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">📄</span> Metadata Findings <span class="badge">{{ metadata_findings | length }}</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            {% for finding in metadata_findings %}
+            <div style="border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 12px;">
+                <div style="font-weight: 600; color: var(--cyan); margin-bottom: 6px;">{{ finding.url | default('Unknown') }} <span class="tag tag-purple">{{ finding.type | default('file') }}</span></div>
+                {% if finding.metadata %}
+                <div class="kv-grid">
+                    {% for k, v in finding.metadata.items() %}
+                    <div class="k">{{ k }}</div>
+                    <div class="v">{{ v }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if finding.risk_notes %}
+                <div style="margin-top: 8px;">
+                    {% for note in finding.risk_notes %}
+                    <div style="color: var(--yellow); font-size: 0.85em;">⚠ {{ note }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- WAYBACK -->
+    {% if wayback_data %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">🕰️</span> Wayback Machine</h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <div class="kv-grid">
+                <div class="k">First Archived</div>
+                <div class="v">{{ wayback_data.first_archived | default('N/A') }}</div>
+                <div class="k">Total Snapshots</div>
+                <div class="v">{{ wayback_data.snapshot_count | default(0) }}</div>
+            </div>
+            {% if wayback_data.urls %}
+            <h3 style="color: var(--cyan); margin: 15px 0 8px; font-size: 0.95em;">Historical URLs (up to 50)</h3>
+            <ul class="item-list">
+                {% for url in wayback_data.urls %}
+                <li><a href="{{ url }}" target="_blank">{{ url }}</a></li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% if wayback_data.deleted_urls %}
+            <h3 style="color: var(--red); margin: 15px 0 8px; font-size: 0.95em;">Deleted/404 URLs</h3>
+            <ul class="item-list">
+                {% for url in wayback_data.deleted_urls %}
+                <li style="color: var(--red);">{{ url }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- REPUTATION -->
+    {% if reputation_data %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">🛡️</span> Reputation</h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <div class="kv-grid">
+                {% if reputation_data.virustotal_positives is defined %}
+                <div class="k">VirusTotal</div>
+                <div class="v">
+                    {% if reputation_data.virustotal_positives > 0 %}
+                    <span class="tag tag-red">{{ reputation_data.virustotal_positives }}/{{ reputation_data.virustotal_total | default('?') }} vendors flagged</span>
+                    {% else %}
+                    <span class="tag tag-green">Clean</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if reputation_data.abuseipdb_score is defined %}
+                <div class="k">AbuseIPDB Score</div>
+                <div class="v">
+                    {% if reputation_data.abuseipdb_score > 50 %}
+                    <span class="tag tag-red">{{ reputation_data.abuseipdb_score }}%</span>
+                    {% else %}
+                    <span class="tag tag-green">{{ reputation_data.abuseipdb_score }}%</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if reputation_data.safebrowsing_status is defined %}
+                <div class="k">Google Safe Browsing</div>
+                <div class="v">
+                    {% if reputation_data.safebrowsing_status == 'flagged' %}
+                    <span class="tag tag-red">Flagged</span>
+                    {% else %}
+                    <span class="tag tag-green">{{ reputation_data.safebrowsing_status | title }}</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if reputation_data.checks_performed %}
+                <div class="k">Checks Performed</div>
+                <div class="v">{% for c in reputation_data.checks_performed %}<span class="tag tag-cyan">{{ c }}</span>{% endfor %}</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ERRORS -->
+    {% if errors %}
+    <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">
+            <h2><span class="icon">⚡</span> Scan Errors <span class="badge" style="background: rgba(248,81,73,0.2); color: var(--red);">{{ errors | length }}</span></h2>
+            <span class="chevron">▼</span>
+        </div>
+        <div class="panel-body">
+            <ul class="item-list">
+                {% for err in errors %}
+                <li style="color: var(--red);">{{ err }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- ===== FOOTER ===== -->
+<div class="footer">
+    <p>🐍 <strong>VENOM</strong> — Advanced OSINT Reconnaissance Framework v1.0.0</p>
+    <p style="margin-top: 8px;">This report was generated automatically for authorized security testing purposes only.</p>
+    <p>Unauthorized use against third-party systems is prohibited.</p>
+</div>
+
+<script>
+function togglePanel(header) {
+    header.parentElement.classList.toggle('open');
+}
+// Auto-open panels with important content
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.panel.open .panel-body').forEach(function(body) {
+        body.style.display = 'block';
+    });
+});
+</script>
+</body>
+</html>
