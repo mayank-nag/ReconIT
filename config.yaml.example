@@ -1,0 +1,49 @@
+# =============================================================================
+# ReconIT / VENOM — OSINT Configuration Template
+# =============================================================================
+# Copy this file to config.yaml and populate any optional API keys or preferences:
+#   cp config.yaml.example config.yaml
+#
+# Note: config.yaml contains private credentials and is listed in .gitignore.
+# Never commit your active config.yaml to source control!
+
+# API Keys — all optional; framework executes core reconnaissance without them.
+api_keys:
+  virustotal: ""          # Free: https://virustotal.com/gui/join-us (4 requests/minute)
+  google_safebrowsing: "" # Free: https://console.cloud.google.com
+  abuseipdb: ""           # Free: https://abuseipdb.com (1,000 requests/day)
+  shodan: ""              # Optional: https://shodan.io
+  github: ""              # Optional: Personal Access Token for GitHub Code Search API
+  openai: ""              # Optional: OpenAI API Key for LLM-augmented analyst summaries
+
+# Scan defaults & operational limits
+scan:
+  timeout: 10             # Network request timeout in seconds
+  max_subdomains: 100     # Maximum subdomains to return from enumeration
+  crawl_depth: 3          # Maximum web spidering depth
+  rate_limit: 5.0         # Global rate limit across all modules (requests per second)
+  max_hosts: 25           # Maximum hosts to scan during recursive operations
+  recursive: false        # Enable recursive scanning across discovered in-scope subdomains
+  scope: ""               # Optional path to scope file or comma-separated allowed domains
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (ReconIT-Venom)"
+
+# Output settings
+output:
+  directory: "./output/"  # Root directory for generated scan artifacts
+  format: "all"           # Default format: all, json, html, csv
+
+# Module toggles (set to false to disable specific modules)
+modules:
+  whois: true
+  dns: true
+  ssl: true
+  tech_fingerprint: true
+  subdomain_enum: true
+  crawler: true
+  email_extractor: true
+  metadata_extractor: true
+  wayback: true
+  reputation: true
+  cve_matching: true
+  github_dorking: true
+  analyst_engine: true

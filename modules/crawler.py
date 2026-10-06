@@ -3,20 +3,24 @@ Web crawler module.
 
 Spiders discovered domains/subdomains, maps all pages, extracts
 links, files, and checks for exposed sensitive paths.
+Direct contact classification: Non-intrusive Web Spider (Rate-Limited).
 """
 
-import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Optional
 from collections import deque
+import httpx
+
+from core.http_client import HttpClient
 
 
 def _parse_robots_txt(base_url: str, timeout: int = 10) -> str:
-    """Fetch and return robots.txt content."""
+    """Fetch and return robots.txt content using shared HttpClient."""
     try:
         url = urljoin(base_url, "/robots.txt")
-        resp = httpx.get(url, timeout=timeout, follow_redirects=True, verify=False)
+        client = HttpClient.get_instance(timeout=float(timeout))
+        resp = client.get(url, timeout=float(timeout))
         if resp.status_code == 200:
             return resp.text
     except Exception:
@@ -25,11 +29,12 @@ def _parse_robots_txt(base_url: str, timeout: int = 10) -> str:
 
 
 def _parse_sitemap(base_url: str, timeout: int = 10) -> List[str]:
-    """Fetch and parse sitemap.xml for URLs."""
+    """Fetch and parse sitemap.xml for URLs using shared HttpClient."""
     urls = []
     try:
         url = urljoin(base_url, "/sitemap.xml")
-        resp = httpx.get(url, timeout=timeout, follow_redirects=True, verify=False)
+        client = HttpClient.get_instance(timeout=float(timeout))
+        resp = client.get(url, timeout=float(timeout))
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "lxml-xml")
             for loc in soup.find_all("loc"):
@@ -53,15 +58,26 @@ def _is_same_domain(url: str, domain: str, base_netloc: str = "") -> bool:
         return False
 
 
-def _get_file_type(url: str) -> str | None:
+def _get_file_type(url: str) -> Optional[str]:
     """Check if URL points to a downloadable file by extension."""
     file_extensions = {
-        ".pdf": "pdf", ".docx": "docx", ".xlsx": "xlsx",
-        ".doc": "doc", ".xls": "xls", ".pptx": "pptx",
-        ".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg",
-        ".gif": "gif", ".svg": "svg", ".csv": "csv",
-        ".zip": "zip", ".txt": "txt", ".json": "json",
-        ".bak": "bak", ".md": "md",
+        ".pdf": "pdf",
+        ".docx": "docx",
+        ".xlsx": "xlsx",
+        ".doc": "doc",
+        ".xls": "xls",
+        ".pptx": "pptx",
+        ".png": "png",
+        ".jpg": "jpeg",
+        ".jpeg": "jpeg",
+        ".gif": "gif",
+        ".svg": "svg",
+        ".csv": "csv",
+        ".zip": "zip",
+        ".txt": "txt",
+        ".json": "json",
+        ".bak": "bak",
+        ".md": "md",
     }
     path = urlparse(url).path.lower()
     for ext, ftype in file_extensions.items():
@@ -98,6 +114,7 @@ def run(
             "external_links": [],
             "robots_txt": "",
             "sitemap_urls": [],
+            "contact_type": "Direct Crawl (Rate-Limited BFS)",
         },
         "risk_flags": [],
         "errors": [],
@@ -113,13 +130,17 @@ def run(
     # Determine start URL
     if not base_url:
         clean_host = domain.split(":")[0].lower()
-        if clean_host in ("localhost", "127.0.0.1", "0.0.0.0") or ":3000" in domain or ":8080" in domain:
+        if clean_host in ("localhost", "127.0.0.1", "0.0.0.0") or any(
+            p in domain for p in (":3000", ":8080", ":8000")
+        ):
             base_url = f"http://{domain}"
         else:
             base_url = f"https://{domain}"
 
     parsed_base = urlparse(base_url)
     base_netloc = parsed_base.netloc or domain
+
+    http_client = HttpClient.get_instance(timeout=float(timeout))
 
     # Fetch robots.txt & sitemap
     robots_txt = _parse_robots_txt(base_url, timeout)
@@ -137,20 +158,18 @@ def run(
     sitemap_urls = _parse_sitemap(base_url, timeout)
     result["data"]["sitemap_urls"] = sitemap_urls
 
-    client = httpx.Client(
-        timeout=timeout,
-        follow_redirects=True,
-        verify=False,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        },
-    )
-
     # Known sensitive and high-value endpoints to probe
     sensitive_probes = [
-        "/.git/config", "/.env", "/package.json", "/ftp", "/ftp/",
-        "/api-docs", "/swagger.json", "/rest/products/search",
-        "/.well-known/security.txt", "/robots.txt"
+        "/.git/config",
+        "/.env",
+        "/package.json",
+        "/ftp",
+        "/ftp/",
+        "/api-docs",
+        "/swagger.json",
+        "/rest/products/search",
+        "/.well-known/security.txt",
+        "/robots.txt",
     ]
 
     try:
@@ -159,7 +178,7 @@ def run(
             probe_url = urljoin(base_url, probe)
             if probe_url not in visited:
                 try:
-                    resp = client.get(probe_url)
+                    resp = http_client.get(probe_url, timeout=float(timeout))
                     if resp.status_code == 200 and len(resp.content) > 0:
                         visited.add(probe_url)
                         pages.append({
@@ -179,7 +198,7 @@ def run(
         queue.append((base_url, 0))
         visited.add(base_url)
 
-        # Also queue any paths extracted from robots.txt disallowed
+        # Also queue paths extracted from robots.txt disallowed
         for dpath in disallowed:
             d_url = urljoin(base_url, dpath)
             if d_url not in visited:
@@ -197,23 +216,27 @@ def run(
 
             if not ignore_robots and robots_txt:
                 if any(path.startswith(d) for d in disallowed if d != "/"):
-                    pass  # we still log or allow depending on setting
+                    pass  # respect policy
 
             try:
-                resp = client.get(url)
+                resp = http_client.get(url, timeout=float(timeout))
             except Exception as e:
                 result["errors"].append(f"Failed to fetch {url}: {str(e)}")
                 continue
 
             content_type = resp.headers.get("content-type", "").lower()
-            
+
             # Extract downloadable files
             ftype = _get_file_type(url)
             if ftype:
                 if url not in {f["url"] for f in files}:
                     files.append({"url": url, "type": ftype})
 
-            if "text/html" not in content_type and "application/json" not in content_type and "text/javascript" not in content_type:
+            if (
+                "text/html" not in content_type
+                and "application/json" not in content_type
+                and "text/javascript" not in content_type
+            ):
                 continue
 
             html = resp.text
@@ -270,8 +293,8 @@ def run(
                             if ft and abs_src not in {f["url"] for f in files}:
                                 files.append({"url": abs_src, "type": ft})
 
-    finally:
-        client.close()
+    except Exception as e:
+        result["errors"].append(f"Crawl operation encountered error: {str(e)}")
 
     result["data"]["pages"] = pages
     result["data"]["page_contents"] = page_contents

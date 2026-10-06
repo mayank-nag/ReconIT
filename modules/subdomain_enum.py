@@ -2,17 +2,20 @@
 Subdomain enumeration module.
 
 Discovers subdomains using three layers:
-1. Certificate Transparency (crt.sh)
-2. DNS brute force from wordlist
-3. SANs from SSL certificate inspection
+1. Certificate Transparency (crt.sh) - Passive OSINT
+2. DNS brute force from wordlist - Direct Low-Impact Query
+3. SANs from SSL certificate inspection - Passive Inspection
 
-All sources are passive OSINT — no active scanning.
+Features built-in Wildcard DNS detection and ScopeGuard enforcement to
+eliminate false positives and out-of-scope third-party domains.
 """
 
-import dns.resolver
-import requests
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
+import dns.resolver
+
+from core.http_client import HttpClient
+from core.scope import ScopeGuard, WildcardDnsDetector
 
 
 def _query_crtsh(domain: str, timeout: int = 20) -> List[str]:
@@ -20,30 +23,32 @@ def _query_crtsh(domain: str, timeout: int = 20) -> List[str]:
     subdomains = set()
     try:
         url = f"https://crt.sh/?q=%.{domain}&output=json"
-        resp = requests.get(url, timeout=timeout)
-        resp.raise_for_status()
-
-        for entry in resp.json():
-            name = entry.get("name_value", "")
-            # crt.sh returns newline-separated names in some entries
-            for sub in name.split("\n"):
-                sub = sub.strip().lower()
-                # Remove wildcard prefix
-                if sub.startswith("*."):
-                    sub = sub[2:]
-                if sub.endswith(f".{domain}") or sub == domain:
-                    subdomains.add(sub)
+        client = HttpClient.get_instance(timeout=float(timeout))
+        resp = client.get(url, use_cache=True, cache_ttl=600.0)
+        if resp.status_code == 200:
+            for entry in resp.json():
+                name = entry.get("name_value", "")
+                for sub in name.split("\n"):
+                    sub = sub.strip().lower()
+                    if sub.startswith("*."):
+                        sub = sub[2:]
+                    if sub.endswith(f".{domain}") or sub == domain:
+                        subdomains.add(sub)
     except Exception:
         pass
 
     return list(subdomains)
 
 
-def _dns_bruteforce(domain: str, max_checks: int = 200, timeout: int = 3) -> List[str]:
-    """Brute force subdomains from wordlist via DNS resolution."""
+def _dns_bruteforce(
+    domain: str,
+    max_checks: int = 200,
+    timeout: int = 3,
+    wildcard_detector: Optional[WildcardDnsDetector] = None,
+) -> List[str]:
+    """Brute force subdomains from wordlist via DNS resolution, filtering wildcard false positives."""
     subdomains = set()
 
-    # Locate wordlist relative to project root
     wordlist_paths = [
         Path(__file__).parent.parent / "wordlists" / "subdomains.txt",
         Path("wordlists/subdomains.txt"),
@@ -70,10 +75,20 @@ def _dns_bruteforce(domain: str, max_checks: int = 200, timeout: int = 3) -> Lis
 
         candidate = f"{word}.{domain}"
         try:
-            resolver.resolve(candidate, "A")
+            answers = resolver.resolve(candidate, "A")
+            resolved_ips = [str(rdata) for rdata in answers]
+
+            # Filter out wildcard false positives
+            if wildcard_detector and wildcard_detector.is_false_positive(resolved_ips):
+                continue
+
             subdomains.add(candidate)
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
-                dns.resolver.NoNameservers, dns.exception.Timeout):
+        except (
+            dns.resolver.NXDOMAIN,
+            dns.resolver.NoAnswer,
+            dns.resolver.NoNameservers,
+            dns.exception.Timeout,
+        ):
             continue
         except Exception:
             continue
@@ -100,7 +115,12 @@ def _is_local_host(domain: str) -> bool:
         or d.endswith(".local")
         or d.startswith("192.168.")
         or d.startswith("10.")
-        or (d.startswith("172.") and 16 <= int(d.split(".")[1]) <= 31 if len(d.split(".")) > 1 and d.split(".")[1].isdigit() else False)
+        or (
+            d.startswith("172.")
+            and 16 <= int(d.split(".")[1]) <= 31
+            if len(d.split(".")) > 1 and d.split(".")[1].isdigit()
+            else False
+        )
         or all(part.isdigit() for part in d.split("."))
     )
 
@@ -110,20 +130,30 @@ def run(
     sans: Optional[List[str]] = None,
     max_subdomains: int = 100,
     timeout: int = 10,
+    scope_guard: Optional[ScopeGuard] = None,
 ) -> Dict[str, Any]:
-    """Enumerate subdomains using Certificate Transparency, DNS brute force, and SSL SANs.
+    """Enumerate subdomains with wildcard filtering and scope boundaries.
 
     Args:
         domain: Root domain to enumerate subdomains for.
         sans: Optional list of Subject Alternative Names from SSL cert.
         max_subdomains: Maximum number of subdomains to return.
         timeout: Timeout for network requests in seconds.
+        scope_guard: Optional ScopeGuard instance to ensure subdomains remain in-scope.
 
     Returns:
-        Dict with 'data' containing discovered subdomains and sources,
-        'risk_flags' list, and 'errors' list.
+        Dict with discovered subdomains, sources, wildcard status, and errors.
     """
-    result: Dict[str, Any] = {"data": {"subdomains": [], "sources": {}}, "risk_flags": [], "errors": []}
+    result: Dict[str, Any] = {
+        "data": {
+            "subdomains": [],
+            "sources": {},
+            "wildcard_dns": False,
+            "wildcard_ips": [],
+        },
+        "risk_flags": [],
+        "errors": [],
+    }
 
     clean_domain = domain.split(":")[0].lower()
     if _is_local_host(clean_domain):
@@ -132,48 +162,64 @@ def run(
         result["data"]["sources"] = {"local_target": "Subdomain enum skipped for local/IP target"}
         return result
 
+    guard = scope_guard or ScopeGuard(clean_domain)
+
+    # Step 0: Check for Wildcard DNS
+    wildcard_detector = WildcardDnsDetector(clean_domain, timeout=min(3.0, float(timeout)))
+    is_wildcard, wildcard_ips = wildcard_detector.check()
+    result["data"]["wildcard_dns"] = is_wildcard
+    result["data"]["wildcard_ips"] = list(wildcard_ips)
+
     all_subdomains: Dict[str, str] = {}  # subdomain -> source
 
-    # Layer 1: Certificate Transparency
+    # Layer 1: Certificate Transparency (Passive)
     try:
         crtsh_results = _query_crtsh(clean_domain, timeout=timeout)
         for sub in crtsh_results:
-            if sub != domain and sub not in all_subdomains:
-                all_subdomains[sub] = "crt.sh"
+            if sub != clean_domain and guard.is_in_scope(sub):
+                if sub not in all_subdomains:
+                    all_subdomains[sub] = "crt.sh (Passive CT Log)"
         result["data"]["sources"]["crt.sh"] = len(crtsh_results)
     except Exception as e:
         result["errors"].append(f"crt.sh query failed: {str(e)}")
         result["data"]["sources"]["crt.sh"] = 0
 
-    # Layer 2: DNS Brute Force
+    # Layer 2: DNS Brute Force (Active contact, filtered if wildcard)
     try:
-        brute_results = _dns_bruteforce(domain, max_checks=max_subdomains * 2, timeout=timeout)
+        brute_results = _dns_bruteforce(
+            clean_domain,
+            max_checks=max_subdomains * 2,
+            timeout=timeout,
+            wildcard_detector=wildcard_detector,
+        )
         new_from_brute = 0
         for sub in brute_results:
-            if sub != domain and sub not in all_subdomains:
-                all_subdomains[sub] = "dns_brute"
-                new_from_brute += 1
+            if sub != clean_domain and guard.is_in_scope(sub):
+                if sub not in all_subdomains:
+                    all_subdomains[sub] = "dns_brute (Active Resolution)"
+                    new_from_brute += 1
         result["data"]["sources"]["dns_brute"] = new_from_brute
     except Exception as e:
         result["errors"].append(f"DNS brute force failed: {str(e)}")
         result["data"]["sources"]["dns_brute"] = 0
 
-    # Layer 3: SANs from SSL
+    # Layer 3: SANs from SSL (Passive)
     if sans:
         try:
-            san_results = _filter_sans(domain, sans)
+            san_results = _filter_sans(clean_domain, sans)
             new_from_sans = 0
             for sub in san_results:
-                if sub not in all_subdomains:
-                    all_subdomains[sub] = "ssl_sans"
+                if guard.is_in_scope(sub) and sub not in all_subdomains:
+                    all_subdomains[sub] = "ssl_sans (Passive Cert Data)"
                     new_from_sans += 1
             result["data"]["sources"]["ssl_sans"] = new_from_sans
         except Exception as e:
             result["errors"].append(f"SAN filtering failed: {str(e)}")
             result["data"]["sources"]["ssl_sans"] = 0
 
-    # Deduplicate, sort, cap
-    unique_subs = sorted(all_subdomains.keys())[:max_subdomains]
+    # Final filter through ScopeGuard and cap
+    in_scope_subs = [s for s in sorted(all_subdomains.keys()) if guard.is_in_scope(s)]
+    unique_subs = in_scope_subs[:max_subdomains]
 
     result["data"]["subdomains"] = unique_subs
     result["data"]["total"] = len(unique_subs)

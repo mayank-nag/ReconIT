@@ -4,12 +4,16 @@ GitHub Dorking & Public Secret Recon Module.
 Constructs targeted GitHub dorks to discover leaked credentials, API keys,
 configuration files, and internal endpoints associated with the target domain.
 Supports live GitHub Search API querying when a token is configured.
+Ensures discovered secrets are masked (only first 4 characters revealed).
+Contact classification: Passive Search (GitHub API / Search Engine).
 """
 
 import urllib.parse
 from typing import Dict, Any, List, Optional
-import requests
+import httpx
 
+from core.http_client import HttpClient
+from core.target import mask_secret
 
 DORK_TEMPLATES = [
     {
@@ -52,21 +56,13 @@ DORK_TEMPLATES = [
 
 
 def run(domain: str, api_keys: Optional[Dict[str, str]] = None, timeout: int = 10) -> Dict[str, Any]:
-    """Run GitHub dorking queries for the target domain.
-
-    Args:
-        domain: Target domain name.
-        api_keys: Optional dictionary containing 'github' personal access token.
-        timeout: Network request timeout in seconds.
-
-    Returns:
-        Dict with 'dorks', 'findings', 'risk_flags', and 'errors'.
-    """
+    """Run GitHub dorking queries for the target domain, masking any discovered secrets."""
     result: Dict[str, Any] = {
         "data": {
             "dorks": [],
             "findings": [],
             "total_dorks": len(DORK_TEMPLATES),
+            "contact_type": "Passive Third-Party (GitHub API / Code Search)",
         },
         "risk_flags": [],
         "errors": [],
@@ -74,6 +70,7 @@ def run(domain: str, api_keys: Optional[Dict[str, str]] = None, timeout: int = 1
 
     api_keys = api_keys or {}
     github_token = api_keys.get("github", "").strip()
+    client = HttpClient.get_instance(timeout=float(timeout))
 
     # Generate dork URLs
     dorks_list = []
@@ -94,17 +91,16 @@ def run(domain: str, api_keys: Optional[Dict[str, str]] = None, timeout: int = 1
 
     result["data"]["dorks"] = dorks_list
 
-    # If GitHub token is provided, query GitHub Search API
+    # If GitHub token is provided, query GitHub Search API with rate limits
     if github_token:
         headers = {
             "Authorization": f"Bearer {github_token}",
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Venom-OSINT-Framework",
         }
         for dork in dorks_list[:3]:
             try:
                 api_url = f"https://api.github.com/search/code?q={urllib.parse.quote_plus(dork['query'])}"
-                resp = requests.get(api_url, headers=headers, timeout=timeout)
+                resp = client.get(api_url, headers=headers, timeout=float(timeout))
                 if resp.status_code == 200:
                     data = resp.json()
                     total_count = data.get("total_count", 0)
@@ -113,11 +109,19 @@ def run(domain: str, api_keys: Optional[Dict[str, str]] = None, timeout: int = 1
                             repo_name = item.get("repository", {}).get("full_name", "Unknown")
                             file_path = item.get("path", "")
                             html_url = item.get("html_url", "")
+
+                            # Extract and mask any text matches
+                            snippet = ""
+                            if "text_matches" in item and item["text_matches"]:
+                                raw_snippet = item["text_matches"][0].get("fragment", "")
+                                snippet = mask_secret(raw_snippet)
+
                             result["data"]["findings"].append({
                                 "dork_title": dork["title"],
                                 "repo": repo_name,
                                 "path": file_path,
                                 "url": html_url,
+                                "snippet": snippet,
                             })
                         result["risk_flags"].append("Public GitHub secret / credential leak")
                 elif resp.status_code == 403:

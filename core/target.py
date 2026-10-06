@@ -1,14 +1,25 @@
 """
-Target Dataclass for Venom OSINT.
+Target Dataclass for Venom / ReconIT OSINT Framework.
 
-Stores all scan findings for a domain and calculates risk scores
+Stores all scan findings for a domain and calculates heuristic risk scores
 based on discovered vulnerabilities and misconfigurations.
 """
 
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Any, Optional
 import json
+import re
 from datetime import datetime, timezone
+
+
+def mask_secret(secret: str) -> str:
+    """Mask sensitive tokens or credentials, revealing only first 4 characters."""
+    if not secret:
+        return ""
+    secret = str(secret).strip()
+    if len(secret) <= 6:
+        return "******"
+    return secret[:4] + "*" * min(20, len(secret) - 4)
 
 
 @dataclass
@@ -21,6 +32,7 @@ class Target:
     port: int = 80
     protocol: str = "http"
     is_local: bool = False
+    schema_version: str = "1.0.0"
     scan_date: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     whois_data: Dict[str, Any] = field(default_factory=dict)
     dns_data: Dict[str, Any] = field(default_factory=dict)
@@ -40,15 +52,20 @@ class Target:
     ai_analysis: Dict[str, Any] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
 
-    # Risk scoring table from the implementation plan
+    # Risk scoring table (heuristic weights)
     RISK_SCORES: Dict[str, int] = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.host:
             self.host = self.domain
         if not self.target_url:
-            self.target_url = f"{self.protocol}://{self.host}" if self.port in (80, 443) else f"{self.protocol}://{self.host}:{self.port}"
+            self.target_url = (
+                f"{self.protocol}://{self.host}"
+                if self.port in (80, 443)
+                else f"{self.protocol}://{self.host}:{self.port}"
+            )
 
+        # Heuristic severity weights (capped at 100)
         self.RISK_SCORES = {
             "Domain age < 6 months": 20,
             "Missing DMARC": 10,
@@ -82,7 +99,6 @@ class Target:
             details: Optional longer description
             score: Override score; if None, looks up from RISK_SCORES table
         """
-        # Deduplicate by flag name
         existing = {f["flag"] for f in self.risk_flags}
         if flag in existing:
             return
@@ -97,7 +113,10 @@ class Target:
         })
 
     def calculate_risk_score(self) -> int:
-        """Calculates the overall risk score (0-100) based on accumulated risk flags.
+        """Calculates the overall heuristic risk score (0-100) based on accumulated flags.
+
+        Note: This is an additive heuristic calculation capped at 100, providing an
+        indicative posture score rather than a formal actuarial probability.
 
         Score bands:
             0-30:  LOW
@@ -105,8 +124,8 @@ class Target:
             61-80: HIGH
             81-100: CRITICAL
         """
-        score = sum(f["score"] for f in self.risk_flags)
-        self.risk_score = min(score, 100)
+        raw_score = sum(f["score"] for f in self.risk_flags)
+        self.risk_score = min(max(0, raw_score), 100)
         return self.risk_score
 
     def get_risk_level(self) -> str:
@@ -121,11 +140,21 @@ class Target:
             return "CRITICAL"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts the Target instance to a dictionary."""
+        """Converts the Target instance to a dictionary with masked sensitive fields."""
         data = asdict(self)
         data.pop("RISK_SCORES", None)
         data["target"] = self.domain
         data["risk_level"] = self.get_risk_level()
+        data["scoring_method"] = "heuristic_additive_capped_100"
+
+        # Ensure any leak snippets or secrets are masked
+        if "github_leaks" in data and isinstance(data["github_leaks"], list):
+            for item in data["github_leaks"]:
+                if isinstance(item, dict) and "secret" in item:
+                    item["secret"] = mask_secret(item["secret"])
+                if isinstance(item, dict) and "token" in item:
+                    item["token"] = mask_secret(item["token"])
+
         return data
 
     def to_json(self) -> str:

@@ -241,13 +241,16 @@
         <a href="report.json" target="_blank" style="background: var(--bg3); border: 1px solid var(--border); color: var(--cyan); padding: 10px 18px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
             <span>📦</span> Raw JSON Findings (report.json)
         </a>
+        <a href="subdomains.csv" target="_blank" style="background: var(--bg3); border: 1px solid var(--border); color: var(--yellow); padding: 10px 18px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+            <span>📊</span> Subdomains (CSV)
+        </a>
     </div>
 
-    <!-- AI ANALYST LAYER DASHBOARD -->
+    <!-- ANALYST ENGINE LAYER DASHBOARD -->
     {% if ai_analysis %}
     <div class="panel open" style="border: 1px solid var(--purple);">
         <div class="panel-header" onclick="togglePanel(this)" style="background: rgba(188,140,255,0.08);">
-            <h2><span class="icon">🧠</span> AI Security Analyst Intelligence Dashboard <span class="badge" style="background: var(--purple); color: var(--bg);">AI SYNTHESIS</span></h2>
+            <h2><span class="icon">🧠</span> Analyst Engine Dashboard <span class="badge" style="background: var(--purple); color: var(--bg);">{{ ai_analysis.mode | default('HEURISTIC ENGINE') }}</span></h2>
             <span class="chevron">▼</span>
         </div>
         <div class="panel-body">
