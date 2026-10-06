@@ -11,7 +11,7 @@ jobs:
     name: Code Linting & Style
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -25,7 +25,7 @@ jobs:
     name: Static Type Analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -41,7 +41,7 @@ jobs:
     name: Unit & Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -57,7 +57,7 @@ jobs:
     name: DevSecOps Vulnerability & SAST Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
